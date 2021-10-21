@@ -556,7 +556,7 @@ class SentenceTransformer(nn.Sequential):
 
     def fit(self,
             train_objectives: Iterable[Tuple[DataLoader, nn.Module]],
-            evaluator: SentenceEvaluator = None,
+            evaluator: Union[SentenceEvaluator, List[SentenceEvaluator]] = None,
             epochs: int = 1,
             steps_per_epoch = None,
             scheduler: str = 'WarmupLinear',
@@ -583,7 +583,7 @@ class SentenceTransformer(nn.Sequential):
         to make sure of equal training with each dataset.
 
         :param train_objectives: Tuples of (DataLoader, LossFunction). Pass more than one for multi-task learning
-        :param evaluator: An evaluator (sentence_transformers.evaluation) evaluates the model performance during training on held-out dev data. It is used to determine the best model that is saved to disc.
+        :param evaluator: One or several evaluator (sentence_transformers.evaluation) evaluates the model performance during training on held-out dev data. It is used to determine the best model that is saved to disc.
         :param epochs: Number of epochs for training
         :param steps_per_epoch: Number of training steps per epoch. If set to None (default), one epoch is equal the DataLoader size from train_objectives.
         :param scheduler: Learning rate scheduler. Available schedulers: constantlr, warmupconstant, warmuplinear, warmupcosine, warmupcosinewithhardrestarts
@@ -613,7 +613,14 @@ class SentenceTransformer(nn.Sequential):
             info_loss_functions.extend(ModelCardTemplate.get_train_objective_info(dataloader, loss))
         info_loss_functions = "\n\n".join([text for text in info_loss_functions])
 
-        info_fit_parameters = json.dumps({"evaluator": fullname(evaluator), "epochs": epochs, "steps_per_epoch": steps_per_epoch, "scheduler": scheduler, "warmup_steps": warmup_steps, "optimizer_class": str(optimizer_class),  "optimizer_params": optimizer_params, "weight_decay": weight_decay, "evaluation_steps": evaluation_steps, "max_grad_norm": max_grad_norm }, indent=4, sort_keys=True)
+        if isinstance(evaluator, SentenceEvaluator):
+            evaluator = [evaluator]
+
+        info_fit_parameters = json.dumps([
+            {"evaluator": fullname(evaluate), "epochs": epochs, "steps_per_epoch": steps_per_epoch,
+             "scheduler": scheduler, "warmup_steps": warmup_steps, "optimizer_class": str(optimizer_class),
+             "optimizer_params": optimizer_params, "weight_decay": weight_decay, "evaluation_steps": evaluation_steps,
+             "max_grad_norm": max_grad_norm} for evaluate in evaluator], indent=4, sort_keys=True)
         self._model_card_text = None
         self._model_card_vars['{TRAINING_SECTION}'] = ModelCardTemplate.__TRAINING_SECTION__.replace("{LOSS_FUNCTIONS}", info_loss_functions).replace("{FIT_PARAMETERS}", info_fit_parameters)
 
@@ -636,6 +643,9 @@ class SentenceTransformer(nn.Sequential):
 
         if steps_per_epoch is None or steps_per_epoch == 0:
             steps_per_epoch = min([len(dataloader) for dataloader in dataloaders])
+
+        if torch.distributed.is_initialized():
+            steps_per_epoch = steps_per_epoch // torch.distributed.get_world_size()
 
         num_train_steps = int(steps_per_epoch * epochs)
 
@@ -723,17 +733,19 @@ class SentenceTransformer(nn.Sequential):
                             global_step += 1
 
                 if evaluation_steps > 0 and training_steps % evaluation_steps == 0:
-                    self._eval_during_training(evaluator, output_path, save_best_model, epoch, training_steps, callback)
+                    for i, evaluate in enumerate(evaluator):
+                        self._eval_during_training(evaluate, output_path, i == 0, epoch, training_steps, callback)
 
-                    for loss_model in loss_models:
-                        loss_model.zero_grad()
-                        loss_model.train()
+                        for loss_model in loss_models:
+                            loss_model.zero_grad()
+                            loss_model.train()
 
                 if checkpoint_path is not None and checkpoint_save_steps is not None and checkpoint_save_steps > 0 and global_step % checkpoint_save_steps == 0:
                     self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
 
-            self._eval_during_training(evaluator, output_path, save_best_model, epoch, -1, callback)
+            for i, evaluate in enumerate(evaluator):
+                self._eval_during_training(evaluate, output_path, i == 0, epoch, -1, callback)
 
         if evaluator is None and output_path is not None:   #No evaluator, but output path: save final model version
             self.save(output_path)

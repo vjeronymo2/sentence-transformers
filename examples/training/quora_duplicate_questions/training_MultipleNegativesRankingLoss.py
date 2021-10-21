@@ -36,11 +36,11 @@ model = SentenceTransformer('stsb-distilbert-base')
 
 #Training for multiple epochs can be beneficial, as in each epoch a mini-batch is sampled differently
 #hence, we get different negatives for each positive
-num_epochs = 10
+num_epochs = 1
 
 #Increasing the batch size improves the performance for MultipleNegativesRankingLoss. Choose it as large as possible
 #I achieved the good results with a batch size of 300-350 (requires about 30 GB of GPU memory)
-train_batch_size = 64
+train_batch_size = 32
 
 dataset_path = 'quora-IR-dataset'
 model_save_path = 'output/training_MultipleNegativesRankingLoss-'+datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
