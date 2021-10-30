@@ -290,7 +290,7 @@ def batch_to_device(batch, target_device: device):
     """
     for key in batch:
         if isinstance(batch[key], Tensor):
-            batch[key] = batch[key].to(target_device)
+            batch[key] = batch[key]
     return batch
 
 

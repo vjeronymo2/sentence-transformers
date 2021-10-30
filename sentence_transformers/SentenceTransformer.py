@@ -148,7 +148,7 @@ class SentenceTransformer(nn.Sequential):
         if device is None:
             device = self._target_device
 
-        self.to(device)
+        # self.to(device)
 
         all_embeddings = []
         length_sorted_idx = np.argsort([-self._text_length(sen) for sen in sentences])
@@ -702,7 +702,7 @@ class SentenceTransformer(nn.Sequential):
                         self.accelerator.backward(scaler.scale(loss_value))
                         training_steps += 1
                         scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
+                        self.accelerator.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
 
                         if training_steps % gradient_accumulation == 0:
                             scaler.step(optimizer)
@@ -716,7 +716,7 @@ class SentenceTransformer(nn.Sequential):
                         loss_value = loss_model(features, labels)
                         self.accelerator.backward(loss_value)
                         training_steps += 1
-                        torch.nn.utils.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
+                        self.accelerator.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
                         if training_steps % gradient_accumulation == 0:
                             optimizer.step()
 
