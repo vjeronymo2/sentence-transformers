@@ -364,10 +364,10 @@ class SentenceTransformer(nn.Sequential):
                 model_path = os.path.join(path, str(idx)+"_"+type(module).__name__)
 
             os.makedirs(model_path, exist_ok=True)
-            self.accelerator.wait_for_everyone()
-            unwrapped_model = self.accelerator.unwrap_model(module)
-            self.accelerator.save(unwrapped_model.state_dict(), model_path)
-            # module.save(model_path)
+            # self.accelerator.wait_for_everyone()
+            # unwrapped_model = self.accelerator.unwrap_model(module)
+            # self.accelerator.save(unwrapped_model.state_dict(), model_path)
+            module.save(model_path)
             modules_config.append({'idx': idx, 'name': name, 'path': os.path.basename(model_path), 'type': type(module).__module__})
 
         with open(os.path.join(path, 'modules.json'), 'w') as fOut:
