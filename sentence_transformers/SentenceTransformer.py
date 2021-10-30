@@ -45,6 +45,7 @@ class SentenceTransformer(nn.Sequential):
         self._model_card_vars = {}
         self._model_card_text = None
         self._model_config = {}
+        self.accelerator = Accelerator()
 
         if cache_folder is None:
             cache_folder = os.getenv('SENTENCE_TRANSFORMERS_HOME')
@@ -363,7 +364,10 @@ class SentenceTransformer(nn.Sequential):
                 model_path = os.path.join(path, str(idx)+"_"+type(module).__name__)
 
             os.makedirs(model_path, exist_ok=True)
-            module.save(model_path)
+            self.accelerator.wait_for_everyone()
+            unwrapped_model = self.accelerator.unwrap_model(module)
+            self.accelerator.save(unwrapped_model.state_dict(), model_path)
+            # module.save(model_path)
             modules_config.append({'idx': idx, 'name': name, 'path': os.path.basename(model_path), 'type': type(module).__module__})
 
         with open(os.path.join(path, 'modules.json'), 'w') as fOut:
@@ -617,8 +621,7 @@ class SentenceTransformer(nn.Sequential):
         self._model_card_text = None
         self._model_card_vars['{TRAINING_SECTION}'] = ModelCardTemplate.__TRAINING_SECTION__.replace("{LOSS_FUNCTIONS}", info_loss_functions).replace("{FIT_PARAMETERS}", info_fit_parameters)
 
-        # accelerate setup
-        accelerator = Accelerator()
+        
 
         if use_amp:
             from torch.cuda.amp import autocast
@@ -657,9 +660,9 @@ class SentenceTransformer(nn.Sequential):
             optimizers.append(optimizer)
             schedulers.append(scheduler_obj)
 
-        loss_models = [accelerator.prepare(loss_model) for loss_model in loss_models]
-        optimizers = [accelerator.prepare(optimizer) for optimizer in optimizers]
-        dataloaders = [accelerator.prepare(dataloader) for dataloader in dataloaders]
+        loss_models = [self.accelerator.prepare(loss_model) for loss_model in loss_models]
+        optimizers = [self.accelerator.prepare(optimizer) for optimizer in optimizers]
+        dataloaders = [self.accelerator.prepare(dataloader) for dataloader in dataloaders]
 
         global_step = 0
         data_iterators = [iter(dataloader) for dataloader in dataloaders]
@@ -696,7 +699,7 @@ class SentenceTransformer(nn.Sequential):
                             loss_value = loss_model(features, labels)
 
                         scale_before_step = scaler.get_scale()
-                        accelerator.backward(scaler.scale(loss_value))
+                        self.accelerator.backward(scaler.scale(loss_value))
                         training_steps += 1
                         scaler.unscale_(optimizer)
                         torch.nn.utils.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
@@ -711,7 +714,7 @@ class SentenceTransformer(nn.Sequential):
                             global_step += 1
                     else:
                         loss_value = loss_model(features, labels)
-                        accelerator.backward(loss_value)
+                        self.accelerator.backward(loss_value)
                         training_steps += 1
                         torch.nn.utils.clip_grad_norm_(loss_model.parameters(), max_grad_norm)
                         if training_steps % gradient_accumulation == 0:
